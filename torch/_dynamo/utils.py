@@ -1408,6 +1408,9 @@ def unique_normalized_attr_name(name):
     for i in itertools.count():
         if name not in TracingContext.get().module_context.names_to_sources:
             print(f"NEW NAME! {original} -> {name}")
+            if "getattr" in name:
+                import traceback
+                traceback.print_stack()
             return name
         name = f"{base}_{i}"
 

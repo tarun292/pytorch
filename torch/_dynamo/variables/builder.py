@@ -108,6 +108,7 @@ class _missing:
 
 @dataclasses.dataclass
 class GraphArg:
+    name: str
     source: Source
     example: Any
     is_unspecialized: bool
@@ -562,7 +563,7 @@ class VariableBuilder:
 
     def wrap_sym(self, value: Union[torch.SymInt, torch.SymFloat]):
         if not is_constant_source(self.get_source()):
-            self.tx.output.add_grapharg(GraphArg(self.get_source(), value, False, None))
+            self.tx.output.add_grapharg(get_or_make_known_name(self.name, self.get_source()), GraphArg(self.get_source(), value, False, None))
         elif is_constant_source(self.get_source()):
             return self.tx.output.register_attr_or_module(
                 value,
@@ -759,7 +760,7 @@ class VariableBuilder:
             fake_tensor_value = example_value
 
         self.tx.output.add_grapharg(
-            GraphArg(self.get_source(), value, False, fake_tensor_value)
+            GraphArg(get_or_make_known_name(self.name, self.get_source()), self.get_source(), value, False, fake_tensor_value)
         )
 
         if type(value) in config.traceable_tensor_subclasses:
@@ -828,6 +829,7 @@ class VariableBuilder:
                     fake_tensor_value = example_value
                 self.tx.output.add_grapharg(
                     GraphArg(
+                        get_or_make_known_name(self.name, self.get_source())
                         self.get_source(),
                         wrapped_value,
                         isinstance(wrapped_value, torch.Tensor),
