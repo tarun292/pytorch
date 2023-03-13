@@ -494,8 +494,6 @@ class OutputGraph(fx.Tracer, Checkpointable[OutputGraphState]):
         # all the sources can be the same, because when we eventually call .register into the
         # context_module, we need to make sure elements match.
         name = get_or_make_known_name(source)
-        if "self_Conv2d_1a_3x3_conv" in name:
-            breakpoint()
         if not name or not name[0].isalpha():
             name = "sub" + name
         base = name
