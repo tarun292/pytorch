@@ -198,6 +198,11 @@ class Source:
         raise NotImplementedError()
 
     def name(self) -> str:
+        """
+        The name of a source should always be its real name in user code.
+        The purpose of a source name is for eval. Ostensibly, any eval(source.name())
+        should always give access to the real object in user code.
+        """
         raise NotImplementedError()
 
     def make_guard(self, fn, is_volatile=False) -> Guard:
