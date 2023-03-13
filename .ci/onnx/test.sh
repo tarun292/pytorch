@@ -63,7 +63,7 @@ if [[ "$BUILD_ENVIRONMENT" == *onnx* ]]; then
   pip install -q --user ninja flatbuffers==2.0 numpy==1.22.4 onnxruntime==1.14.0 beartype==0.10.4
   pip install -q --user onnx==1.13.1
   # TODO: change this when onnx-script is on testPypi
-  pip install 'onnx-script @ git+https://github.com/microsoft/onnx-script@29241e15f5182be1384f1cf6ba203d7e2e125196'
+  pip install 'onnx-script @ git+https://github.com/microsoft/onnx-script@2952f41d9a76e48be378f100fe1623d744fe1943'
   # numba requires numpy <= 1.20, onnxruntime requires numpy >= 1.21.
   # We don't actually need it for our tests, but it's imported if it's present, so uninstall.
   pip uninstall -q --yes numba
