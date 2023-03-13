@@ -1401,11 +1401,13 @@ def unique_normalized_attr_name(name):
     from torch._guards import TracingContext
 
     # Normalize the attr name
+    original = name
     name = normalize_attr_name(name)
     base = name
     # Iterate until we have a new, unique name.
     for i in itertools.count():
         if name not in TracingContext.get().module_context.names_to_sources:
+            print(f"NEW NAME! {original} -> {name}")
             return name
         name = f"{base}_{i}"
 

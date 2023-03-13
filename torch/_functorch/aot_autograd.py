@@ -2819,6 +2819,8 @@ def aot_module_simplified(
     if tracing_context:
         for name, _ in params.items():
             name = normalize_attr_name(name)
+            print("NORM NAME", name)
+            print("NAMES SOURCES", tracing_context.module_context.names_to_sources.keys())
             tracing_context.aot_autograd_arg_pos_to_source.append(tracing_context.module_context.names_to_sources[name])
 
         if hasattr(mod, "graph"):
