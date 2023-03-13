@@ -5,6 +5,7 @@ import inspect
 import operator
 
 import re
+import types
 import warnings
 from types import FunctionType
 
@@ -125,10 +126,23 @@ def _retrieve_or_adapt_input_to_graph_set(fx_node_arg, fx_name_to_onnxscipt_valu
         # 2. fx_node_arg (variable in torch.fx.Graph) is be mapped to
         #    torch.jit.Value, fx_name_to_onnxscipt_value[fx_node_arg.name],
         #    in TorchScript graph.
-        onnx_tensor = fx_name_to_onnxscipt_value[onnx_tensor.name]
-    elif isinstance(onnx_tensor, torch.dtype):
+        return fx_name_to_onnxscipt_value[onnx_tensor.name]
+    if isinstance(onnx_tensor, (tuple, list)) and any(
+        isinstance(ele, torch.fx.Node) for ele in onnx_tensor
+    ):
+        # This intends to solve dynamic axes. for example, if the size input of op.Expand
+        # is dynamic, each of dim would be originated from other tensors.
+        new_tensor = []
+        for tensor in onnx_tensor:
+            if isinstance(tensor, torch.fx.Node):
+                new_tensor.append(fx_name_to_onnxscipt_value[tensor.name])
+            else:
+                new_tensor.append(tensor)
+        return new_tensor
+    if isinstance(onnx_tensor, torch.dtype):
         onnx_tensor = int(_type_utils.JitScalarType.from_dtype(onnx_tensor).onnx_type())
 
+    # all other cases, we does nothing.
     return onnx_tensor
 
 
@@ -161,15 +175,19 @@ def _fill_tensor_meta(
     onnxscript_values,
     name: str,
     expected_values: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+    dynamic_axes: bool = False,
 ):
     """Fill the meta information of onnxscript_values with that from the fx FakeTensor."""
+
+    # aten::sym_size output is a int, not a tensor, which stands
+    # for the size of one dim. We treat it as 1D tensor.
+    if isinstance(expected_values, int):
+        return
 
     if isinstance(expected_values, (list, tuple)) and not isinstance(
         onnxscript_values, (list, tuple)
     ):
-        # TODO(titaiwang): Support List of Tensors: https://github.com/microsoft/onnx-script/issues/481
-        # This is the case that fx has [tensor, tensor, ...], but onnxscript_value wrapped it as a single tensor.
-        # graph_buiding not yet support list of tensors, so we don't need to handle this case for now.
+        # TODO(titaiwang): How to annotate type from sequence_type of ONNX?
         # eg: aten_split
         return
 
@@ -178,11 +196,15 @@ def _fill_tensor_meta(
     for i, (onnxscript_value, expected_value) in enumerate(
         zip(flat_onnxscript_values, flat_expected_values)
     ):
-        # Only set shape for now as we don't need type information.
-        onnxscript_value.shape = tuple(expected_value.size())
+        if dynamic_axes:
+            # We set node output sizes all to be dynamic to continue the model conversion,
+            # and inputs are also set to be dynamic in add_input().
+            onnxscript_value.shape = tuple(len(expected_value.size()) * [None])
+        else:
+            onnxscript_value.shape = tuple(expected_value.size())
         # FIXME(titaiwang): type promotion is not supported yet,
         # so set dtype will break onnx shape inference.
-        # onnxscript_value.dtype = expected_value.dtype
+        onnxscript_value.dtype = expected_value.dtype
         if i > 0:
             onnxscript_value.name = f"{name}_{i}"
         else:
@@ -204,6 +226,13 @@ def _wrap_fx_args_as_onnxscript_args(
     complete_kwargs: Dict[str, Any] = {}
     if inspect.isbuiltin(node.target):
         complete_args = list(node.args)
+    elif isinstance(node.target, torch._ops.OpOverloadPacket):
+        # aten::sym_size is the only OverloadPacket that we support.
+        # schema: aten::sym_size(Tensor self, int dim) -> Tensor
+        assert str(node.target) == "aten.sym_size"
+        # The first arg is the tensor, the second arg is the dim.
+        complete_args.append(node.args[0])
+        complete_kwargs["dim"] = node.args[1]
     else:
         for i, expected_arg in enumerate(node.target._schema.arguments):  # type: ignore[union-attr]
             if i < len(node.args):
@@ -214,7 +243,6 @@ def _wrap_fx_args_as_onnxscript_args(
                 else:
                     # Get default from schema.
                     complete_kwargs[expected_arg.name] = expected_arg.default_value
-
     onnxscript_args = tuple(
         _retrieve_or_adapt_input_to_graph_set(arg, fx_name_to_onnxscipt_value)
         for arg in complete_args
@@ -235,6 +263,12 @@ def _wrap_fx_args_as_onnxscript_args(
                         torch_args.append(
                             torch.randn_like(meta_value, dtype=torch.float)
                         )
+                elif not isinstance(arg.meta["val"], torch.Tensor):
+                    # FIXME(titaiwang): Refactor me with
+                    # https://github.com/microsoft/onnx-script/issues/393
+                    # aten_sym_size output is a int, not a tensor,
+                    # which stands for the size of one dim.
+                    torch_args.append(arg.meta["val"])
                 else:
                     torch_args.append(
                         torch.randn_like(arg.meta["val"], dtype=torch.float)
@@ -280,6 +314,7 @@ def _export_fx_node_to_onnxscript(
             input_name=node.name,
             # The node.meta["val"] is generated by FakeTensorProp.
             input_value=node.meta["val"],
+            dynamic_axes=options.dynamic_axes,
         )
         assert (
             output is not None
@@ -316,6 +351,25 @@ def _export_fx_node_to_onnxscript(
             exporter_key = function_dispatcher._OP_OVERLOAD_TO_EXPORTER_KEY_TABLE[
                 node.target
             ]
+        elif (
+            isinstance(node.target, torch._ops.OpOverloadPacket)
+            and node.target in function_dispatcher._OP_OVERLOAD_TO_EXPORTER_KEY_TABLE
+        ):
+            # aten::sym_size is the only OverloadPacket that we support.
+            exporter_key = function_dispatcher._OP_OVERLOAD_TO_EXPORTER_KEY_TABLE[
+                node.target
+            ]
+        elif (
+            isinstance(node.target, types.BuiltinFunctionType)
+            and node.name.split("_")[0]
+            in function_dispatcher._BUILTIN_OVERLOAD_TO_EXPORTER_KEY_TABLE
+        ):
+            # This function expects built-in functions to have name like mul, mul_1, ...
+
+            # symbolic fx.graph contains built-in functions to calculate python values.
+            exporter_key = function_dispatcher._BUILTIN_OVERLOAD_TO_EXPORTER_KEY_TABLE[
+                node.name.split("_")[0]
+            ]
         else:
             raise RuntimeError(f"Unknown call_function target: {node.target}")
         # Only the latest opset version is only supported in atenlib for now
@@ -340,7 +394,7 @@ def _export_fx_node_to_onnxscript(
         ), f"Node creates None with target={node.target}, name={node.name}, args={onnx_args}, kwargs={onnx_kwargs}"
         # TODO(justinchuby): Add diagnostic information.
         # Assign type and shape obtained from FakeTensorProp.
-        _fill_tensor_meta(output, node.name, node.meta["val"])
+        _fill_tensor_meta(output, node.name, node.meta["val"], options.dynamic_axes)
         # One fx node could produce multiple outputs (e.g., tuple of tensors); in
         # that case, v is a tuple of TorchScriptTensors.
         assert isinstance(output, (graph_building.TorchScriptTensor, tuple)), type(
