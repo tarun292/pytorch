@@ -494,6 +494,8 @@ class OutputGraph(fx.Tracer, Checkpointable[OutputGraphState]):
         # all the sources can be the same, because when we eventually call .register into the
         # context_module, we need to make sure elements match.
         name = get_or_make_known_name(source)
+        if "self_Conv2d_1a_3x3_conv" in name:
+            breakpoint()
         if not name or not name[0].isalpha():
             name = "sub" + name
         base = name
@@ -506,18 +508,14 @@ class OutputGraph(fx.Tracer, Checkpointable[OutputGraphState]):
                     # annoying, but there are cases when we do not have parameters
                     # see test_nn_moduledict_contains
                     if hasattr(target, "_parameters"):
-                        for n, p in target.named_parameters(
-                            recurse=False, remove_duplicate=False
-                        ):
+                        for n, p in target._parameters.items():
                             new_source = ParamBufferSource(source, n)
                             new_name = new_source.flat_name()
                             self.register_attr_or_module(p, new_name, source=new_source)
                     # annoying, but there are cases when we do not have buffers
                     # see test_nn_moduledict_contains
                     if hasattr(target, "_buffers"):
-                        for n, p in target.named_buffers(
-                            recurse=False, remove_duplicate=False
-                        ):
+                        for n, p in target._buffers.items():
                             new_source = ParamBufferSource(source, n)
                             new_name = new_source.flat_name()
                             self.register_attr_or_module(p, new_name, source=new_source)
