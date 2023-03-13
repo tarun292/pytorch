@@ -7607,8 +7607,10 @@ if HAS_CUDA and not TEST_WITH_ASAN:
         def tearDown(self):
             super().tearDown()
             torch._dynamo.reset()
+            gc.collect()
             config.triton.cudagraphs = self.prev_enabled
             config.triton.cudagraph_trees = self.tapes_enabled
+            self.assertIsNone(self.get_manager())
 
         def get_manager(self):
             return torch._inductor.cudagraph_trees.get_container().tree_manager
@@ -7729,9 +7731,11 @@ if HAS_CUDA and not TEST_WITH_ASAN:
 
             # two separate compilations & recordings
             out1 = foo_opt(torch.zeros([5], device="cuda"))
+
+            # out1 gets manually freed
             out2 = foo_opt(torch.zeros([6], device="cuda"))
 
-            self.assertEqual(all_live_block_count(), 2)
+            self.assertEqual(all_live_block_count(), 1)
 
             out3 = foo_opt(torch.ones([5], device="cuda"))
             self.assertEqual(out3, foo(torch.ones([5], device="cuda")))
@@ -7875,15 +7879,14 @@ if HAS_CUDA and not TEST_WITH_ASAN:
 
             out1, out2 = test_closure()
             torch._dynamo.reset()
-            self.assertTrue(self.get_manager() is not None)
-            del out1
-            self.assertTrue(self.get_manager() is not None)
-            del out2
+
+            # TODO - deallocate on tensor deallocation
+            # self.assertTrue(self.get_manager() is not None)
+            # del out1
+            # self.assertTrue(self.get_manager() is not None)
+            # del out2
             self.assertTrue(self.get_manager() is None)
 
-        # This will fail because weakrefs with storages does not work
-        # and [Detaching saved tensors] will make the output tensors die
-        @unittest.skip("Skipping until we check liveness with storages")
         def test_forward_backward(self):
             @torch._dynamo.optimize()
             def foo(x):
@@ -7894,7 +7897,6 @@ if HAS_CUDA and not TEST_WITH_ASAN:
             print("Input ID", id(inp))
             out = foo(inp)
             out.sum().backward()
-            breakpoint()
 
             self.assertEqual(self.get_root_children(), [1])
 
@@ -7902,7 +7904,7 @@ if HAS_CUDA and not TEST_WITH_ASAN:
             # we kept alive the output
             self.assertEqual(self.curr_node().expected_dead_indices_before_graph, [])
             self.assertEqual(
-                self.curr_node().expected_dead_indices_after_graph[1],
+                self.curr_node().expected_dead_indices_after_graph,
                 [(0, 1), (0, 2), (0, 3)],
             )
 
