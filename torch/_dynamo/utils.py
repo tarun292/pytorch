@@ -1409,6 +1409,7 @@ def unique_normalized_attr_name(name):
         if name not in TracingContext.get().module_context.names_to_sources:
             print(f"NEW NAME! {original} -> {name}")
             if "getattr" in name:
+                breakpoint()
                 import traceback
                 traceback.print_stack()
             return name

@@ -829,7 +829,7 @@ class VariableBuilder:
                     fake_tensor_value = example_value
                 self.tx.output.add_grapharg(
                     GraphArg(
-                        get_or_make_known_name(self.name, self.get_source())
+                        get_or_make_known_name(self.name, self.get_source()),
                         self.get_source(),
                         wrapped_value,
                         isinstance(wrapped_value, torch.Tensor),
