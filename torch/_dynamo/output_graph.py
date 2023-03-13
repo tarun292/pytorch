@@ -491,7 +491,8 @@ class OutputGraph(fx.Tracer, Checkpointable[OutputGraphState]):
         # The reason we need this uniform is that we need all the names to be the same, so that
         # all the sources can be the same, because when we eventually call .register into the
         # context_module, we need to make sure elements match.
-        name = get_or_make_known_name(source)
+        name = get_or_make_known_name(source, name=name)
+        flat_name = get_or_make_known_name(source)
         if not name or not name[0].isalpha():
             name = "sub" + name
         base = name
@@ -499,7 +500,7 @@ class OutputGraph(fx.Tracer, Checkpointable[OutputGraphState]):
             if name not in self.nn_modules:
                 self.nn_modules[name] = target
                 assert self.names_to_sources is not None
-                self.tracing_context.module_context.register(name, source)
+                self.tracing_context.module_context.register(flat_name, source)
                 if isinstance(target, torch.nn.Module) and not is_lazy_module(target):
                     # annoying, but there are cases when we do not have parameters
                     # see test_nn_moduledict_contains

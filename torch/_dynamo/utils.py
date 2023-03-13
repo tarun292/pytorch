@@ -1411,10 +1411,11 @@ def unique_normalized_attr_name(name):
         name = f"{base}_{i}"
 
 
-def get_or_make_known_name(source):
+def get_or_make_known_name(source, name=None):
     from torch._dynamo.source import AttrSource
     # Try to get the known name
-    name = source.flat_name()
+    if name is None:
+        name = source.flat_name()
     known = known_name(name, source)
     if known:
         return known
