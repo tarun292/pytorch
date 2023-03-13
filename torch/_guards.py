@@ -205,6 +205,22 @@ class Source:
         """
         raise NotImplementedError()
 
+    def flat_name(self):
+        """
+        Flat name is a name devoid of eval-able identifiers for the purpose of normalization.
+
+        When we have param names in non dynamo code, we have no way of building something like
+        foo.bar[0].baz into the same change of getattrs.
+
+        This, instead, bypasses that in favor of a simple dot access name.
+
+        Not safe for eval, use .name() instead.
+
+        Overriden only if .name() is, and, does special mangling, and should be used
+        for consistent lookup outside of dynamo.
+        """
+        return self.name()
+
     def make_guard(self, fn, is_volatile=False) -> Guard:
         if self.guard_source() is GuardSource.CONSTANT:
             raise NotImplementedError()
